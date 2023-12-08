@@ -5,10 +5,10 @@ class BD:
 
     def __get_conexaoBD(self):
         try:
-            server = ''
-            username = ''
-            password = ''
-            database = ''
+            server = 'BANCOPROMOTORA.factadc.local'
+            username = 'dbPortalFacta'
+            password = '9Tq9s7RIUE2koerft'
+            database = 'Facta_01_BaseDados'
             conn = pyodbc.connect(
                 'DRIVER={SQL Server};SERVER=' + server + ';DATABASE=' + database + ';UID=' + username + ';PWD=' + password)
             return conn
