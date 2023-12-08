@@ -25,6 +25,41 @@ class DocFormalizacao(BD):
     def __getDadosAfs(self):
         try:
             sql = """\
+                SELECT
+                    F.ID,F.CODIGO_AF, F.CODIGOAF_DOC_REUTILIZADA CODIGORETUILIZADO, A.CODIGO_VINCULADO , 
+                    CAST(A.DATA_CADASTRO AS DATE) AS DATA_CADASTRO,
+                    (SELECT CAST(DATA_CADASTRO AS DATE) FROM AUXILIO_FINANCEIRO WHERE CODIGO = F.CODIGOAF_DOC_REUTILIZADA)  DATA_CADASTRO_REUTILIZADO,
+                    (CASE WHEN A.CODIGO_VINCULADO IS NOT NULL THEN (SELECT CAST(DATA_CADASTRO AS DATE) FROM AUXILIO_FINANCEIRO WHERE CODIGO = A.CODIGO_VINCULADO) ELSE NULL END)  DATA_CADASTRO_COD_VINCULADO
+                            FROM FORMALIZACAO_DIGITAL F
+                                JOIN AUXILIO_FINANCEIRO A ON A.CODIGO = F.CODIGO_AF
+                            WHERE 
+                                A.CODIGO IN (
+                                SELECT CODIGO_AF
+                                    FROM FORMALIZACAO_DIGITAL
+                                    WHERE CODIGO_AF in
+                                        (SELECT CODIGO
+                                        FROM AUXILIO_FINANCEIRO af
+                                        WHERE cast(DATA_CADASTRO AS date) = '2023-12-06'
+                                        AND exists
+                                            (SELECT top 1 1
+                                            FROM auxilio_financeiro_analise an
+                                            WHERE an.Codigo = af.codigo
+                                                AND an.status = '11')
+                                        AND NOT exists
+                                            (SELECT top 1 1from auxilio_financeiro_analise an
+                                            WHERE an.Codigo = af.codigo
+                                                AND an.status = '56'
+                                                AND an.Hora_Alteracao <= '16:00') )
+                                    AND CODIGOAF_DOC_REUTILIZADA IS NOT NULL
+                                    )  AND NOT EXISTS (
+                                                        SELECT 1
+                                                            FROM documentosreutilizadosafs DR
+                                                        WHERE
+                                                            DR.codigoaf = F.CODIGO_AF
+                                                    )
+                                        ORDER BY F.assinatura_datahora DESC
+
+                    /*
                     SELECT
                         F.ID,F.CODIGO_AF, F.CODIGOAF_DOC_REUTILIZADA CODIGORETUILIZADO, A.CODIGO_VINCULADO , 
                         CAST(A.DATA_CADASTRO AS DATE) AS DATA_CADASTRO,
@@ -32,7 +67,9 @@ class DocFormalizacao(BD):
                         (CASE WHEN A.CODIGO_VINCULADO IS NOT NULL THEN (SELECT CAST(DATA_CADASTRO AS DATE) FROM AUXILIO_FINANCEIRO WHERE CODIGO = A.CODIGO_VINCULADO) ELSE NULL END)  DATA_CADASTRO_COD_VINCULADO
                                 FROM FORMALIZACAO_DIGITAL F
                                     JOIN AUXILIO_FINANCEIRO A ON A.CODIGO = F.CODIGO_AF
-                                WHERE F.CODIGOAF_DOC_REUTILIZADA IS NOT NULL
+                                WHERE 
+                                A.CODIGO = 69067665
+                                F.CODIGOAF_DOC_REUTILIZADA IS NOT NULL
                                     AND F.assinatura_datahora >= DATEADD(HOUR, -8, GETDATE())  -- Filtra registros das últimas 2 horas
                                     AND NOT EXISTS (
                                         SELECT 1
@@ -41,6 +78,7 @@ class DocFormalizacao(BD):
                                             DR.codigoaf = F.CODIGO_AF
                                     )
                     ORDER BY F.assinatura_datahora DESC
+                    */
                 """
 
             return self.getRecordSetExecSql(sql)
@@ -109,7 +147,7 @@ class DocFormalizacao(BD):
 
         return pastaFtp
 
-    def copyFiles(self, codigoAf, hostFtp, pastaFtp):
+    def copyFiles(self, codigoAf, hostFtp, pastaFtp, selfie = False):
         #Defina as variáveis correspondentes
         dir_path_local = f"C:\\python_script\\enviadocformalizacao\\{codigoAf}"
 
@@ -124,13 +162,24 @@ class DocFormalizacao(BD):
         arquivos = self.__getArquivosDiretorio(path)
 
         for arquivo in arquivos:
-            if 'FRENTE' in arquivo.upper() or 'VERSO' in arquivo.upper() or 'CNH' in arquivo.upper():
-                file_path_origem = join(path, arquivo)
-                file_path_destino = join(dir_path_local, arquivo)
+            if(selfie == False):
+                if 'FRENTE' in arquivo.upper() or 'VERSO' in arquivo.upper() or 'CNH' in arquivo.upper():
+                    file_path_origem    = join(path, arquivo)
+                    file_path_destino   = join(dir_path_local, arquivo)
 
-                # Copia o arquivo para a pasta local
-                shutil.copy(file_path_origem, file_path_destino)
+                    # Copia o arquivo para a pasta local
+                    shutil.copy(file_path_origem, file_path_destino)
+            else:
+                if 'SELFIE' in arquivo.upper():
+                    print(arquivo.upper())
 
+                    file_path_origem    = join(path, arquivo)
+                    file_path_destino   = join(dir_path_local, arquivo)
+
+                    # Copia o arquivo para a pasta local
+                    shutil.copy(file_path_origem, file_path_destino)
+
+    #quit()
     def sendFtp(self,codigoAf, hostFtp, pastaFtpEnvio, cordigoreutilizado, novocodigo, removePath=True):
         try: 
             arquivos_copiado = []
@@ -143,7 +192,9 @@ class DocFormalizacao(BD):
             self.dir_path_servidor = hostFtp+pastaFtpEnvio
 
             dir_path_destino = self.dir_path_servidor
-            
+
+            print(dir_path_destino)
+            #quit()
 
             for arquivo in arquivos:
                 file_path_origem = join(dir_path_local, arquivo)
@@ -181,48 +232,66 @@ class DocFormalizacao(BD):
         except Exception as e:
             print('ERRO: '+str(e))
 
-    def verificaPasta(self, hostFtp, pastaFtp):
-        #self.dir_path_servidor = "//FTPFF11.facta.com.br/dados_financeira_2023$/FTP/FtSiteImagens/"+pastaFtp
-        self.dir_path_servidor = hostFtp+pastaFtp
+    def verificaPasta(self, hostFtp, pastaFtp, selfie = False):
+        try:
+            #self.dir_path_servidor = "//FTPFF11.facta.com.br/dados_financeira_2023$/FTP/FtSiteImagens/"+pastaFtp
+            self.dir_path_servidor = hostFtp+pastaFtp
 
-        path = self.dir_path_servidor
-        files = self.__getArquivosDiretorio(path)
+            path = self.dir_path_servidor
+            files = self.__getArquivosDiretorio(path)
 
-        tipoArquivos = []
-        arquivoVazio = False;
+            tipoArquivos = []
+            arquivoVazio = False;
 
-        for file in files:
-            if 'FRENTE' in file.upper():
-                tipoArquivos.append('FRENTE')
+            for file in files:
 
-                file_path = join(path, file)
-                file_size = getsize(file_path)
-                if(file_size == 0):
-                    arquivoVazio = True
+                if(selfie == True):
+                    if 'SELFIE' in file.upper():
 
-            if 'VERSO' in file.upper():
-                tipoArquivos.append('VERSO')
-                
-                file_path = join(path, file)
-                file_size = getsize(file_path)
-                if(file_size == 0):
-                    arquivoVazio = True
+                        file_path = join(path, file)
+                        file_size = getsize(file_path)
 
-            if 'CNH' in file.upper():
-                tipoArquivos.append('CNH')
+                        if(file_size == 0):
+                            return False
 
-                file_path = join(path, file)
-                file_size = getsize(file_path)
-                if(file_size == 0):
-                    arquivoVazio = True
-        
-        if((('FRENTE' in tipoArquivos and 'VERSO' in tipoArquivos) or ('CNH' in tipoArquivos))):
-            if(arquivoVazio):
-                return False
+                        return True
+                else:
+                    if 'FRENTE' in file.upper():
+                        tipoArquivos.append('FRENTE')
 
-            return True
+                        file_path = join(path, file)
+                        file_size = getsize(file_path)
+                        if(file_size == 0):
+                            arquivoVazio = True
 
-        return False
+                    if 'VERSO' in file.upper():
+                        tipoArquivos.append('VERSO')
+                        
+                        file_path = join(path, file)
+                        file_size = getsize(file_path)
+                        if(file_size == 0):
+                            arquivoVazio = True
+
+                    if 'CNH' in file.upper():
+                        tipoArquivos.append('CNH')
+
+                        file_path = join(path, file)
+                        file_size = getsize(file_path)
+                        if(file_size == 0):
+                            arquivoVazio = True
+
+
+                    if((('FRENTE' in tipoArquivos and 'VERSO' in tipoArquivos) or ('CNH' in tipoArquivos))):
+                        if(arquivoVazio):
+                            return False
+
+                        return True
+
+                    return False
+        except Exception as e:
+            return False
+            #print('Erro acesso a pasta: '+str(e))
+            #quit()
 
     def trata_valor(self, valor):
         return valor if valor is not None else ''
@@ -358,6 +427,7 @@ class DocFormalizacao(BD):
 
     def getDocumentosAfs(self):
         try:
+
             dadosAf = self.__getDadosAfs()
 
             for row in dadosAf:
@@ -387,6 +457,41 @@ class DocFormalizacao(BD):
 
                     pastaFtpArquivosDestino = self.getPastaFtp(DATA_CADASTRO, CODIGO_AF) # Pasta de onde vamos reutilizar as imagens
 
+                    #Enviar aquivos de Selfie
+
+
+                    '''
+                    existeArquivoSelfie = self.verificaPasta(hostFtpDestino, pastaFtpArquivosDestino, True)
+                    
+                    if(existeArquivoSelfie == False):
+                        hostFtpOrigem = self.getPathHostFtp(DATA_CADASTRO_REUTILIZADO) # Host de Origem
+                        pastaFtpArquivosOrigem = self.getPastaFtp(DATA_CADASTRO_REUTILIZADO, CODIGO_REUTILIZADO) # Pasta de onde vamos reutilizar as imagens
+
+                        remove_pasta = CODIGO_VINCULADO is None #Se tiver cod vinculado nao vamos remover a pasta
+
+
+                        self.copyFiles(CODIGO_AF, hostFtpOrigem, pastaFtpArquivosOrigem, True)
+                        self.sendFtp(CODIGO_AF, hostFtpDestino, pastaFtpArquivosDestino , CODIGO_REUTILIZADO, CODIGO_AF, remove_pasta)
+
+                        print('hostFtpOrigem')
+                        print(hostFtpOrigem)
+                        print('pastaFtpArquivosDestino')
+                        print(pastaFtpArquivosDestino)
+
+
+                        if(CODIGO_VINCULADO is not None):
+                            
+                            hostFtpDestinoCodVinculado = self.getPathHostFtp(DATA_CADASTRO_COD_VINCULADO) # Host de Origem
+                            pastaFtpArquivosDestinoCodVinculado = self.getPastaFtp(DATA_CADASTRO_COD_VINCULADO, CODIGO_VINCULADO) # Pasta de onde vamos reutilizar as imagens
+                            existeArquivoVinculado = self.verificaPasta(hostFtpDestinoCodVinculado, pastaFtpArquivosDestinoCodVinculado, True)
+
+                            if(CODIGO_VINCULADO is not None and existeArquivoVinculado == False):
+    
+                                hostFtpDestino = self.getPathHostFtp(DATA_CADASTRO_COD_VINCULADO) # Host de Origem
+                                pastaFtpArquivosDestino = self.getPastaFtp(DATA_CADASTRO_COD_VINCULADO, CODIGO_VINCULADO) # Pasta de onde vamos reutilizar as imagens
+
+                                self.sendFtp(CODIGO_AF, hostFtpDestino, pastaFtpArquivosDestino, CODIGO_REUTILIZADO, CODIGO_VINCULADO)
+                    '''
 
                     existeArquivo = self.verificaPasta(hostFtpDestino, pastaFtpArquivosDestino)
 
@@ -456,7 +561,7 @@ class DocFormalizacao(BD):
                     
                         
                         self.__insertTabelaDocReutilizado(dados_insercao)
-
+                        
                     else:
                         print("Arquivos ja existe na pasta: " + hostFtpDestino + "/" + pastaFtpArquivosDestino + "/" + str(CODIGO_AF))
 
